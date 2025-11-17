@@ -234,6 +234,8 @@ if executar:
                 df = bd.read_sql(
                     query=sql,
                     billing_project_id=billing_project_id,
+                    from_file=True,  # <<< usa a service account do JSON
+                    reauth=False
                 )
 
             st.success(f"Consulta concluída! Linhas retornadas: {len(df)}")
