@@ -42,22 +42,6 @@ def configurar_credenciais_gcp():
 configurar_credenciais_gcp()
 
 # -------------------------------------------------------
-# Testar Conexão
-# -------------------------------------------------------
-
-st.sidebar.subheader("🔌 Testar conexão")
-
-if st.sidebar.button("Testar BigQuery (SELECT 1)"):
-    try:
-        client = bigquery.Client(project=billing_project_id) if billing_project_id else bigquery.Client()
-        test_df = client.query("SELECT 1 AS ok").to_dataframe()
-        st.sidebar.success(f"Conexão OK! Resultado: {test_df.iloc[0]['ok']}")
-    except Exception as e:
-        st.sidebar.error("Erro ao conectar no BigQuery.")
-        st.sidebar.write(e)
-
-
-# -------------------------------------------------------
 # Configuração básica da página
 # -------------------------------------------------------
 st.set_page_config(
@@ -98,6 +82,20 @@ em **Secrets** para não precisar digitar aqui.
 """
 )
 
+# -------------------------------------------------------
+# Testar Conexão
+# -------------------------------------------------------
+
+st.sidebar.subheader("🔌 Testar conexão")
+
+if st.sidebar.button("Testar BigQuery (SELECT 1)"):
+    try:
+        client = bigquery.Client(project=billing_project_id) if billing_project_id else bigquery.Client()
+        test_df = client.query("SELECT 1 AS ok").to_dataframe()
+        st.sidebar.success(f"Conexão OK! Resultado: {test_df.iloc[0]['ok']}")
+    except Exception as e:
+        st.sidebar.error("Erro ao conectar no BigQuery.")
+        st.sidebar.write(e)
 
 # -------------------------------------------------------
 # Função auxiliar: montar query SQL
