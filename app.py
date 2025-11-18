@@ -249,7 +249,6 @@ def montar_query(
 
         dados.nome_responsavel as nome_responsavel,
         dados.qualificacao_responsavel as qualificacao_responsavel,
-        dados.cnae_2_subclasse as cnae_2_subclasse,
 
         -- Novas colunas dos vínculos
         ve.qualificacao_contribuinte,
@@ -283,7 +282,7 @@ def montar_query(
     return query
 
 # -------------------------------------------------------
-# Área principal: filtros de consulta
+# Área principal: filtros da consulta
 # -------------------------------------------------------
 st.subheader("🔎 Filtros da consulta")
 
