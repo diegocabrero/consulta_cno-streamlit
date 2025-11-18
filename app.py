@@ -22,7 +22,7 @@ Este painel consulta os **microdados do CNO** disponibilizados pela **Base dos D
 
 Você pode:
 - Filtrar por **UF**
-- Filtrar por **cidade (município)**, com opção de **Selecionar Todas**
+- Filtrar por **cidades (municípios)**, com opção de **Selecionar todas**
 - Definir **data inicial** e **data final** (campo `data_inicio`)
 - Ajustar o **limite de linhas**
 - Exportar o resultado para **XLSX, CSV ou ZIP**
@@ -100,7 +100,7 @@ if st.sidebar.button("Testar BigQuery (SELECT 1)"):
 # -------------------------------------------------------
 def montar_query(
     uf_filtrada=None,
-    cidade_nome=None,
+    cidades_nomes=None,
     data_inicio_min=None,
     data_inicio_max=None,
     limite_linhas=10_000,
@@ -121,10 +121,11 @@ def montar_query(
     if uf_filtrada:
         filtros.append(f"dados.sigla_uf = '{uf_filtrada}'")
 
-    # Filtro de cidade (nome do município)
-    if cidade_nome:
-        cidade_escapada = cidade_nome.replace("'", "''")
-        filtros.append(f"diretorio_id_municipio.nome = '{cidade_escapada}'")
+    # Filtro de cidades (lista de municípios)
+    if cidades_nomes:
+        nomes_escapados = [c.replace("'", "''") for c in cidades_nomes]
+        lista_in = ", ".join(f"'{n}'" for n in nomes_escapados)
+        filtros.append(f"diretorio_id_municipio.nome IN ({lista_in})")
 
     where_clause = ""
     if filtros:
@@ -204,23 +205,45 @@ with st.form("filtros_cno"):
             format="YYYY-MM-DD",
         )
 
-    # Linha 2: Cidade e Limite
+    # Linha 2: Cidades (multiselect + selecionar todas) e Limite
     col4, col5 = st.columns(2)
 
     with col4:
+        cidades_selecionadas = None
         if uf_filtrada and billing_project_id:
             municipios = listar_municipios_por_uf(uf_filtrada, billing_project_id)
-            opcoes_cidade = ["(Todas)"] + municipios
-            cidade_escolhida = st.selectbox(
-                "Cidade (município)",
-                opcoes_cidade,
-                index=0,
-                help="Selecione um município da UF escolhida ou deixe em '(Todas)'.",
-            )
-            cidade_nome = None if cidade_escolhida == "(Todas)" else cidade_escolhida
+            if municipios:
+                selecionar_todas = st.checkbox(
+                    "Selecionar todas as cidades",
+                    value=True,
+                    help="Quando marcado, considera todas as cidades da UF selecionada.",
+                )
+                if selecionar_todas:
+                    # Todas as cidades da UF
+                    cidades_selecionadas = municipios
+                    st.multiselect(
+                        "Cidades (municípios)",
+                        options=municipios,
+                        default=municipios,
+                        disabled=True,
+                        help="Todas as cidades selecionadas.",
+                    )
+                else:
+                    cidades_selecionadas = st.multiselect(
+                        "Cidades (municípios)",
+                        options=municipios,
+                        default=[],
+                        help="Selecione uma ou mais cidades. Se nenhuma estiver selecionada, nenhuma cidade será filtrada.",
+                    )
+                    # Caso o usuário desmarque tudo, interpretamos como "todas"
+                    if not cidades_selecionadas:
+                        cidades_selecionadas = None
+            else:
+                st.write("Nenhum município encontrado para essa UF.")
+                cidades_selecionadas = None
         else:
-            st.write("Selecione uma UF e informe o Billing Project ID para habilitar o filtro de cidade.")
-            cidade_nome = None
+            st.write("Selecione uma UF (≠ '(Todas)') e informe o Billing Project ID para habilitar o filtro de cidades.")
+            cidades_selecionadas = None
 
     with col5:
         limite_linhas = st.number_input(
@@ -257,7 +280,7 @@ if executar:
 
         sql = montar_query(
             uf_filtrada=uf_filtrada,
-            cidade_nome=cidade_nome,
+            cidades_nomes=cidades_selecionadas,
             data_inicio_min=data_inicio_min_str,
             data_inicio_max=data_inicio_max_str,
             limite_linhas=int(limite_linhas),
