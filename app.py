@@ -18,7 +18,7 @@ st.set_page_config(
 st.title("📊 Consulta CNO (Cadastro Nacional de Obras)")
 st.markdown(
     """
-Este painel consulta os **microdados do CNO** disponibilizados pela **Base dos Dados / BigQuery**.
+Este painel consulta os **microdados do CNO** disponibilizados pela **Base dos Dados**.
 
 Você pode:
 - Filtrar por **UF**
@@ -209,33 +209,34 @@ with st.form("filtros_cno"):
     col4, col5 = st.columns(2)
 
     with col4:
-        cidades_selecionadas = None
         if uf_filtrada and billing_project_id:
             municipios = listar_municipios_por_uf(uf_filtrada, billing_project_id)
             if municipios:
                 selecionar_todas = st.checkbox(
                     "Selecionar todas as cidades",
                     value=True,
-                    help="Quando marcado, considera todas as cidades da UF selecionada.",
+                    help="Quando marcado, **não** será aplicado filtro de cidade (todas as cidades da UF serão consideradas).",
                 )
+
+                cidades_selecionadas = None
                 if selecionar_todas:
-                    # Todas as cidades da UF
-                    cidades_selecionadas = municipios
+                    # Mostra apenas a lista vazia com busca opcional, mas ignora o filtro
                     st.multiselect(
                         "Cidades (municípios)",
                         options=municipios,
-                        default=municipios,
-                        disabled=True,
-                        help="Todas as cidades selecionadas.",
+                        default=[],
+                        placeholder="Digite para pesquisar cidades (opcional)...",
+                        help="Todas as cidades da UF serão consideradas. Desmarque a opção acima para filtrar por cidades específicas.",
                     )
+                    # cidades_selecionadas permanece None → sem filtro de cidade
                 else:
                     cidades_selecionadas = st.multiselect(
                         "Cidades (municípios)",
                         options=municipios,
                         default=[],
-                        help="Selecione uma ou mais cidades. Se nenhuma estiver selecionada, nenhuma cidade será filtrada.",
+                        placeholder="Digite para pesquisar cidades...",
+                        help="Selecione uma ou mais cidades. Se não selecionar nenhuma, todas serão consideradas.",
                     )
-                    # Caso o usuário desmarque tudo, interpretamos como "todas"
                     if not cidades_selecionadas:
                         cidades_selecionadas = None
             else:
@@ -319,16 +320,12 @@ if executar:
                     "utf-8-sig"
                 )
 
-                # ZIP (contendo XLSX e CSV)
+                # ZIP (contendo XLSX)
                 buffer_zip = BytesIO()
                 with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zf:
                     zf.writestr(
                         f"{nome_arquivo_base}.xlsx",
                         buffer_xlsx.getvalue(),
-                    )
-                    zf.writestr(
-                        f"{nome_arquivo_base}.csv",
-                        csv_bytes,
                     )
                 buffer_zip.seek(0)
 
@@ -355,7 +352,7 @@ if executar:
 
                 with col_c:
                     st.download_button(
-                        label="📦 Baixar ZIP (XLSX + CSV)",
+                        label="📦 Baixar ZIP (XLSX)",
                         data=buffer_zip,
                         file_name=f"{nome_arquivo_base}.zip",
                         mime="application/zip",
