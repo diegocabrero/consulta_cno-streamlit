@@ -424,10 +424,13 @@ if executar:
                 query_job = client.query(sql)
                 df = query_job.to_dataframe()
 
-            # Remove linhas duplicadas
-            df = df.drop_duplicates()
+            # Remove duplicidades – 1 linha por id_cno
+            if "id_cno" in df.columns:
+                df = df.drop_duplicates(subset=["id_cno"])
+            else:
+                df = df.drop_duplicates()
 
-            st.success(f"Consulta concluída! Linhas retornadas (após remover duplicadas): {len(df)}")
+            st.success(f"Consulta concluída! Obras retornadas (id_cno únicos): {len(df)}")
 
             if df.empty:
                 st.warning("Nenhum dado encontrado para os filtros selecionados.")
@@ -455,7 +458,7 @@ if executar:
 
                 st.subheader("📋 Amostra dos dados")
                 st.dataframe(df.head(100))
-                st.markdown(f"**Total de linhas retornadas (sem duplicadas):** {len(df)}")
+                st.markdown(f"**Total de obras (id_cno únicos):** {len(df)}")
 
                 # ------------------------------
                 # Geração dos arquivos em memória
@@ -465,21 +468,17 @@ if executar:
                 df.to_excel(buffer_xlsx, index=False)
                 buffer_xlsx.seek(0)
 
-                # CSV
+                # CSV (download separado)
                 csv_bytes = df.to_csv(
                     index=False, sep=";", encoding="utf-8-sig"
                 ).encode("utf-8-sig")
 
-                # ZIP (contendo XLSX + CSV)
+                # ZIP (contendo apenas XLSX)
                 buffer_zip = BytesIO()
                 with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zf:
                     zf.writestr(
                         f"{nome_arquivo_base}.xlsx",
                         buffer_xlsx.getvalue(),
-                    )
-                    zf.writestr(
-                        f"{nome_arquivo_base}.csv",
-                        csv_bytes,
                     )
                 buffer_zip.seek(0)
 
@@ -506,7 +505,7 @@ if executar:
 
                 with col_c:
                     st.download_button(
-                        label="📦 Baixar ZIP (XLSX + CSV)",
+                        label="📦 Baixar ZIP (XLSX)",
                         data=buffer_zip,
                         file_name=f"{nome_arquivo_base}.zip",
                         mime="application/zip",
