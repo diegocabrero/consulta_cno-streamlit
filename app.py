@@ -246,7 +246,10 @@ def montar_query(
         dados.tipo_logradouro as tipo_logradouro,
         dados.numero_logradouro as numero_logradouro,
         dados.complemento as complemento,
-        dados.caixa_postal as caixa_postal,
+
+        dados.nome_responsavel as nome_responsavel,
+        dados.qualificacao_responsavel as qualificacao_responsavel,
+        dados.cnae_2_subclasse as cnae_2_subclasse,
 
         -- Novas colunas dos vínculos
         ve.qualificacao_contribuinte,
@@ -319,45 +322,28 @@ with st.form("filtros_cno"):
             format="YYYY-MM-DD",
         )
 
-    # Linha 2: Cidades (multiselect + selecionar todas) e Limite
+    # Linha 2: Cidades e Limite (mesma altura)
     col4, col5 = st.columns(2)
 
+    cidades_selecionadas = None
     with col4:
         if uf_filtrada and billing_project_id:
             municipios = listar_municipios_por_uf(uf_filtrada, billing_project_id)
             if municipios:
-                selecionar_todas = st.checkbox(
-                    "Selecionar todas as cidades",
-                    value=True,
-                    help="Quando marcado, **não** será aplicado filtro de cidade (todas as cidades da UF serão consideradas).",
+                cidades_selecionadas = st.multiselect(
+                    "Cidades (municípios)",
+                    options=municipios,
+                    default=[],
+                    placeholder="Digite para pesquisar cidades...",
+                    help="Selecione uma ou mais cidades. Se nenhuma for selecionada e a opção abaixo estiver marcada, todas serão consideradas.",
                 )
-
-                cidades_selecionadas = None
-                if selecionar_todas:
-                    # Mostra apenas a lista vazia com busca opcional, mas ignora o filtro
-                    st.multiselect(
-                        "Cidades (municípios)",
-                        options=municipios,
-                        default=[],
-                        placeholder="Digite para pesquisar cidades (opcional)...",
-                        help="Todas as cidades da UF serão consideradas. Desmarque a opção acima para filtrar por cidades específicas.",
-                    )
-                    # cidades_selecionadas permanece None → sem filtro de cidade
-                else:
-                    cidades_selecionadas = st.multiselect(
-                        "Cidades (municípios)",
-                        options=municipios,
-                        default=[],
-                        placeholder="Digite para pesquisar cidades...",
-                        help="Selecione uma ou mais cidades. Se não selecionar nenhuma, todas serão consideradas.",
-                    )
-                    if not cidades_selecionadas:
-                        cidades_selecionadas = None
             else:
                 st.write("Nenhum município encontrado para essa UF.")
                 cidades_selecionadas = None
         else:
-            st.write("Selecione uma UF (≠ '(Todas)') e informe o Billing Project ID para habilitar o filtro de cidades.")
+            st.write(
+                "Selecione uma UF (≠ '(Todas)') e informe o Billing Project ID para habilitar o filtro de cidades."
+            )
             cidades_selecionadas = None
 
     with col5:
@@ -369,6 +355,21 @@ with st.form("filtros_cno"):
             step=10_000,
             help="Quanto maior, mais dados e mais custo de processamento no BigQuery.",
         )
+
+    # Checkbox abaixo da linha, não afeta a altura dos campos
+    selecionar_todas = st.checkbox(
+        "Selecionar todas as cidades",
+        value=True,
+        help="Quando marcado, **não** será aplicado filtro de cidade (todas as cidades da UF serão consideradas).",
+    )
+
+    # Lógica: se selecionar todas → ignorar filtro de cidade
+    if selecionar_todas:
+        cidades_selecionadas = None
+    else:
+        if cidades_selecionadas is not None and len(cidades_selecionadas) == 0:
+            # Nenhuma cidade marcada = todas
+            cidades_selecionadas = None
 
     # Nome base do arquivo
     nome_arquivo_base = st.text_input(
@@ -430,9 +431,9 @@ if executar:
                 buffer_xlsx.seek(0)
 
                 # CSV
-                csv_bytes = df.to_csv(index=False, sep=";", encoding="utf-8-sig").encode(
-                    "utf-8-sig"
-                )
+                csv_bytes = df.to_csv(
+                    index=False, sep=";", encoding="utf-8-sig"
+                ).encode("utf-8-sig")
 
                 # ZIP (contendo XLSX)
                 buffer_zip = BytesIO()
