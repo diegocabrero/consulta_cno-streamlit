@@ -18,11 +18,11 @@ st.set_page_config(
 st.title("📊 Consulta CNO (Cadastro Nacional de Obras)")
 st.markdown(
     """
-Este painel consulta os **microdados do CNO** disponibilizados pela **Base dos Dados**.
+Este painel consulta os **microdados do CNO** disponibilizados pela **Base dos Dados / BigQuery**.
 
 Você pode:
 - Filtrar por **UF**
-- Filtrar por **cidade (município)** (opcional)
+- Filtrar por **cidade (município)**, com opção de **Selecionar Todas**
 - Definir **data inicial** e **data final** (campo `data_inicio`)
 - Ajustar o **limite de linhas**
 - Exportar o resultado para **XLSX, CSV ou ZIP**
@@ -59,6 +59,27 @@ def get_bigquery_client(billing_project_id: str) -> bigquery.Client:
         project=billing_project_id,
         credentials=creds,
     )
+
+# -------------------------------------------------------
+# Cache para lista de municípios por UF
+# -------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def listar_municipios_por_uf(uf: str, billing_project_id: str):
+    """
+    Retorna a lista de nomes de municípios para a UF informada.
+    """
+    if not uf or not billing_project_id:
+        return []
+
+    client = get_bigquery_client(billing_project_id)
+    sql = f"""
+        SELECT DISTINCT nome
+        FROM `basedosdados.br_bd_diretorios_brasil.municipio`
+        WHERE sigla_uf = '{uf}'
+        ORDER BY nome
+    """
+    df_mun = client.query(sql).to_dataframe()
+    return df_mun["nome"].tolist()
 
 # -------------------------------------------------------
 # Testar Conexão - Botão “Testar BigQuery (SELECT 1)”
@@ -102,7 +123,6 @@ def montar_query(
 
     # Filtro de cidade (nome do município)
     if cidade_nome:
-        # escapa aspas simples para evitar erro de SQL
         cidade_escapada = cidade_nome.replace("'", "''")
         filtros.append(f"diretorio_id_municipio.nome = '{cidade_escapada}'")
 
@@ -143,7 +163,6 @@ def montar_query(
       LIMIT {limite_linhas}
     """
     return query
-
 
 # -------------------------------------------------------
 # Área principal: filtros de consulta
@@ -189,12 +208,19 @@ with st.form("filtros_cno"):
     col4, col5 = st.columns(2)
 
     with col4:
-        cidade_nome = st.text_input(
-            "Cidade (nome do município)",
-            value="",
-            help="Digite o nome exato do município ou deixe em branco para todas as cidades.",
-        )
-        cidade_nome = cidade_nome.strip() or None
+        if uf_filtrada and billing_project_id:
+            municipios = listar_municipios_por_uf(uf_filtrada, billing_project_id)
+            opcoes_cidade = ["(Todas)"] + municipios
+            cidade_escolhida = st.selectbox(
+                "Cidade (município)",
+                opcoes_cidade,
+                index=0,
+                help="Selecione um município da UF escolhida ou deixe em '(Todas)'.",
+            )
+            cidade_nome = None if cidade_escolhida == "(Todas)" else cidade_escolhida
+        else:
+            st.write("Selecione uma UF e informe o Billing Project ID para habilitar o filtro de cidade.")
+            cidade_nome = None
 
     with col5:
         limite_linhas = st.number_input(
