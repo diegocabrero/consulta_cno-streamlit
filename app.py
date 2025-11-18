@@ -18,7 +18,7 @@ st.set_page_config(
 st.title("📊 Consulta CNO (Cadastro Nacional de Obras)")
 st.markdown(
     """
-Este painel consulta os **microdados do CNO** disponibilizados pela **Base dos Dados / BigQuery**.
+Este painel consulta os **microdados do CNO** disponibilizados pela **Base dos Dados**.
 
 Você pode:
 - Filtrar por **UF**
