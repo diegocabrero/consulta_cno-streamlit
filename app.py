@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 import basedosdados as bd
 
+from google.cloud import bigquery
 
 # -------------------------------------------------------
 # Configuração de credenciais via secrets (Streamlit Cloud)
@@ -39,6 +40,22 @@ def configurar_credenciais_gcp():
 
 
 configurar_credenciais_gcp()
+
+# -------------------------------------------------------
+# Testar Conexão
+# -------------------------------------------------------
+
+st.sidebar.subheader("🔌 Testar conexão")
+
+if st.sidebar.button("Testar BigQuery (SELECT 1)"):
+    try:
+        client = bigquery.Client(project=billing_project_id) if billing_project_id else bigquery.Client()
+        test_df = client.query("SELECT 1 AS ok").to_dataframe()
+        st.sidebar.success(f"Conexão OK! Resultado: {test_df.iloc[0]['ok']}")
+    except Exception as e:
+        st.sidebar.error("Erro ao conectar no BigQuery.")
+        st.sidebar.write(e)
+
 
 # -------------------------------------------------------
 # Configuração básica da página
@@ -231,12 +248,9 @@ if executar:
 
         try:
             with st.spinner("Consultando dados..."):
-                df = bd.read_sql(
-                    query=sql,
-                    billing_project_id=billing_project_id,
-                    from_file=True,  # <<< usa a service account do JSON
-                    reauth=False
-                )
+                client = bigquery.Client(project=billing_project_id)
+                query_job = client.query(sql)
+                df = query_job.to_dataframe()
 
             st.success(f"Consulta concluída! Linhas retornadas: {len(df)}")
 
@@ -267,3 +281,4 @@ if executar:
         except Exception as e:
             st.error("❌ Ocorreu um erro ao executar a consulta.")
             st.exception(e)
+
