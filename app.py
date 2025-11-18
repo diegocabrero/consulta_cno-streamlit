@@ -1,45 +1,41 @@
-import os
-import json
-import tempfile
+import streamlit as st
+import pandas as pd
 from io import BytesIO
 from datetime import date
 
-import streamlit as st
-import pandas as pd
-import basedosdados as bd
-
 from google.cloud import bigquery
+from google.oauth2 import service_account
 
 # -------------------------------------------------------
 # Configuração de credenciais via secrets (Streamlit Cloud)
 # -------------------------------------------------------
-def configurar_credenciais_gcp():
-    """
-    Lê o JSON da conta de serviço do Streamlit secrets
-    e grava em um arquivo temporário, apontando
-    GOOGLE_APPLICATION_CREDENTIALS para ele.
-    """
-    if "GCP_SERVICE_ACCOUNT_JSON" not in st.secrets:
-        st.warning(
-            "GCP_SERVICE_ACCOUNT_JSON não encontrado em secrets. "
-            "Configure as credenciais no painel de Secrets do Streamlit."
-        )
-        return
-
-    sa_json_str = st.secrets["GCP_SERVICE_ACCOUNT_JSON"]
+#def configurar_credenciais_gcp():
+#    """
+#    Lê o JSON da conta de serviço do Streamlit secrets
+#    e grava em um arquivo temporário, apontando
+#    GOOGLE_APPLICATION_CREDENTIALS para ele.
+#    """
+#    if "GCP_SERVICE_ACCOUNT_JSON" not in st.secrets:
+#        st.warning(
+#            "GCP_SERVICE_ACCOUNT_JSON não encontrado em secrets. "
+#            "Configure as credenciais no painel de Secrets do Streamlit."
+#        )
+#        return
+#
+#    sa_json_str = st.secrets["GCP_SERVICE_ACCOUNT_JSON"]
     # Se vier como dict, converte para string
-    if isinstance(sa_json_str, dict):
-        sa_json_str = json.dumps(sa_json_str)
+#    if isinstance(sa_json_str, dict):
+#        sa_json_str = json.dumps(sa_json_str)
+#
+#    tmp_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json")
+#    tmp_file.write(sa_json_str)
+#    tmp_file.flush()
+#    tmp_file.close()
 
-    tmp_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json")
-    tmp_file.write(sa_json_str)
-    tmp_file.flush()
-    tmp_file.close()
-
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp_file.name
+#    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp_file.name
 
 
-configurar_credenciais_gcp()
+#configurar_credenciais_gcp()
 
 # -------------------------------------------------------
 # Configuração básica da página
@@ -83,14 +79,26 @@ em **Secrets** para não precisar digitar aqui.
 )
 
 # -------------------------------------------------------
-# Testar Conexão
+# Criar o cliente BigQuery com as credenciais
+# -------------------------------------------------------
+
+def get_bigquery_client(billing_project_id: str) -> bigquery.Client:
+    sa_info = st.secrets["gcp_service_account"]  # vem da seção [gcp_service_account]
+    creds = service_account.Credentials.from_service_account_info(sa_info)
+    return bigquery.Client(
+        project=billing_project_id,
+        credentials=creds,
+    )
+
+# -------------------------------------------------------
+# Testar Conexão - Botão “Testar BigQuery (SELECT 1)”
 # -------------------------------------------------------
 
 st.sidebar.subheader("🔌 Testar conexão")
 
 if st.sidebar.button("Testar BigQuery (SELECT 1)"):
     try:
-        client = bigquery.Client(project=billing_project_id) if billing_project_id else bigquery.Client()
+        client = get_bigquery_client(billing_project_id)
         test_df = client.query("SELECT 1 AS ok").to_dataframe()
         st.sidebar.success(f"Conexão OK! Resultado: {test_df.iloc[0]['ok']}")
     except Exception as e:
@@ -217,7 +225,6 @@ with st.form("filtros_cno"):
 
     executar = st.form_submit_button("▶️ Executar consulta")
 
-
 # -------------------------------------------------------
 # Execução da consulta
 # -------------------------------------------------------
@@ -246,37 +253,36 @@ if executar:
 
         try:
             with st.spinner("Consultando dados..."):
-                client = bigquery.Client(project=billing_project_id)
+                client = get_bigquery_client(billing_project_id)
                 query_job = client.query(sql)
                 df = query_job.to_dataframe()
-
+        
             st.success(f"Consulta concluída! Linhas retornadas: {len(df)}")
-
+        
             if df.empty:
                 st.warning("Nenhum dado encontrado para os filtros selecionados.")
             else:
                 st.subheader("📋 Amostra dos dados")
                 st.dataframe(df.head(100))
                 st.markdown(f"**Total de linhas retornadas:** {len(df)}")
-
+        
                 buffer = BytesIO()
                 df.to_excel(buffer, index=False)
                 buffer.seek(0)
-
+        
                 nome_final = (
                     nome_arquivo_excel
                     if nome_arquivo_excel.lower().endswith(".xlsx")
                     else f"{nome_arquivo_excel}.xlsx"
                 )
-
+        
                 st.download_button(
                     label="💾 Baixar Excel",
                     data=buffer,
                     file_name=nome_final,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
-
+        
         except Exception as e:
             st.error("❌ Ocorreu um erro ao executar a consulta.")
             st.exception(e)
-
