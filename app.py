@@ -2,40 +2,10 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import date
+import zipfile
 
 from google.cloud import bigquery
 from google.oauth2 import service_account
-
-# -------------------------------------------------------
-# Configuração de credenciais via secrets (Streamlit Cloud)
-# -------------------------------------------------------
-#def configurar_credenciais_gcp():
-#    """
-#    Lê o JSON da conta de serviço do Streamlit secrets
-#    e grava em um arquivo temporário, apontando
-#    GOOGLE_APPLICATION_CREDENTIALS para ele.
-#    """
-#    if "GCP_SERVICE_ACCOUNT_JSON" not in st.secrets:
-#        st.warning(
-#            "GCP_SERVICE_ACCOUNT_JSON não encontrado em secrets. "
-#            "Configure as credenciais no painel de Secrets do Streamlit."
-#        )
-#        return
-#
-#    sa_json_str = st.secrets["GCP_SERVICE_ACCOUNT_JSON"]
-    # Se vier como dict, converte para string
-#    if isinstance(sa_json_str, dict):
-#        sa_json_str = json.dumps(sa_json_str)
-#
-#    tmp_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json")
-#    tmp_file.write(sa_json_str)
-#    tmp_file.flush()
-#    tmp_file.close()
-
-#    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp_file.name
-
-
-#configurar_credenciais_gcp()
 
 # -------------------------------------------------------
 # Configuração básica da página
@@ -52,9 +22,10 @@ Este painel consulta os **microdados do CNO** disponibilizados pela **Base dos D
 
 Você pode:
 - Filtrar por **UF**
-- Definir um **período de datas** (campo `data_inicio`)
+- Filtrar por **cidade (município)** (opcional)
+- Definir **data inicial** e **data final** (campo `data_inicio`)
 - Ajustar o **limite de linhas**
-- Exportar o resultado para **Excel (.xlsx)**
+- Exportar o resultado para **XLSX, CSV ou ZIP**
 """
 )
 
@@ -73,7 +44,7 @@ billing_project_id = st.sidebar.text_input(
 
 st.sidebar.markdown(
     """
-💡 Dica: no Streamlit Cloud, salve `BILLING_PROJECT_ID` e `GCP_SERVICE_ACCOUNT_JSON`
+💡 Dica: no Streamlit Cloud, salve `BILLING_PROJECT_ID` e `[gcp_service_account]`
 em **Secrets** para não precisar digitar aqui.
 """
 )
@@ -81,7 +52,6 @@ em **Secrets** para não precisar digitar aqui.
 # -------------------------------------------------------
 # Criar o cliente BigQuery com as credenciais
 # -------------------------------------------------------
-
 def get_bigquery_client(billing_project_id: str) -> bigquery.Client:
     sa_info = st.secrets["gcp_service_account"]  # vem da seção [gcp_service_account]
     creds = service_account.Credentials.from_service_account_info(sa_info)
@@ -93,7 +63,6 @@ def get_bigquery_client(billing_project_id: str) -> bigquery.Client:
 # -------------------------------------------------------
 # Testar Conexão - Botão “Testar BigQuery (SELECT 1)”
 # -------------------------------------------------------
-
 st.sidebar.subheader("🔌 Testar conexão")
 
 if st.sidebar.button("Testar BigQuery (SELECT 1)"):
@@ -108,10 +77,13 @@ if st.sidebar.button("Testar BigQuery (SELECT 1)"):
 # -------------------------------------------------------
 # Função auxiliar: montar query SQL
 # -------------------------------------------------------
-def montar_query(uf_filtrada=None,
-                 data_inicio_min=None,
-                 data_inicio_max=None,
-                 limite_linhas=10_000):
+def montar_query(
+    uf_filtrada=None,
+    cidade_nome=None,
+    data_inicio_min=None,
+    data_inicio_max=None,
+    limite_linhas=10_000,
+):
     filtros = []
 
     # Filtro de intervalo de datas (data_inicio)
@@ -127,6 +99,12 @@ def montar_query(uf_filtrada=None,
     # Filtro de UF
     if uf_filtrada:
         filtros.append(f"dados.sigla_uf = '{uf_filtrada}'")
+
+    # Filtro de cidade (nome do município)
+    if cidade_nome:
+        # escapa aspas simples para evitar erro de SQL
+        cidade_escapada = cidade_nome.replace("'", "''")
+        filtros.append(f"diretorio_id_municipio.nome = '{cidade_escapada}'")
 
     where_clause = ""
     if filtros:
@@ -173,6 +151,7 @@ def montar_query(uf_filtrada=None,
 st.subheader("🔎 Filtros da consulta")
 
 with st.form("filtros_cno"):
+    # Linha 1: UF, Data inicial, Data final
     col1, col2, col3 = st.columns(3)
 
     # UF
@@ -188,25 +167,36 @@ with st.form("filtros_cno"):
         uf_escolhida = st.selectbox("UF", uf_opcoes, index=uf_opcoes.index("PR"))
         uf_filtrada = None if uf_escolhida == "(Todas)" else uf_escolhida
 
-    # Período de datas (data_inicio)
+    # Data inicial
     with col2:
         data_inicial_default = date(2023, 5, 16)
-        data_final_default = date(2025, 5, 16)
-        data_range = st.date_input(
-            "Período (data_inicio)",
-            value=(data_inicial_default, data_final_default),
+        data_inicio_min = st.date_input(
+            "Data inicial (data_inicio)",
+            value=data_inicial_default,
             format="YYYY-MM-DD",
         )
 
-        if isinstance(data_range, tuple) and len(data_range) == 2:
-            data_inicio_min = data_range[0]
-            data_inicio_max = data_range[1]
-        else:
-            data_inicio_min = None
-            data_inicio_max = None
-
-    # Limite de linhas
+    # Data final
     with col3:
+        data_final_default = date(2025, 5, 16)
+        data_inicio_max = st.date_input(
+            "Data final (data_inicio)",
+            value=data_final_default,
+            format="YYYY-MM-DD",
+        )
+
+    # Linha 2: Cidade e Limite
+    col4, col5 = st.columns(2)
+
+    with col4:
+        cidade_nome = st.text_input(
+            "Cidade (nome do município)",
+            value="",
+            help="Digite o nome exato do município ou deixe em branco para todas as cidades.",
+        )
+        cidade_nome = cidade_nome.strip() or None
+
+    with col5:
         limite_linhas = st.number_input(
             "Limite de linhas",
             min_value=1,
@@ -216,11 +206,11 @@ with st.form("filtros_cno"):
             help="Quanto maior, mais dados e mais custo de processamento no BigQuery.",
         )
 
-    # Nome do arquivo Excel
-    nome_arquivo_excel = st.text_input(
-        "Nome do arquivo Excel",
-        value="cno_consulta.xlsx",
-        help="Nome do arquivo gerado para download.",
+    # Nome base do arquivo
+    nome_arquivo_base = st.text_input(
+        "Nome base dos arquivos",
+        value="cno_consulta",
+        help="Será usado como base para XLSX, CSV e ZIP.",
     )
 
     executar = st.form_submit_button("▶️ Executar consulta")
@@ -241,6 +231,7 @@ if executar:
 
         sql = montar_query(
             uf_filtrada=uf_filtrada,
+            cidade_nome=cidade_nome,
             data_inicio_min=data_inicio_min_str,
             data_inicio_max=data_inicio_max_str,
             limite_linhas=int(limite_linhas),
@@ -256,33 +247,71 @@ if executar:
                 client = get_bigquery_client(billing_project_id)
                 query_job = client.query(sql)
                 df = query_job.to_dataframe()
-        
+
             st.success(f"Consulta concluída! Linhas retornadas: {len(df)}")
-        
+
             if df.empty:
                 st.warning("Nenhum dado encontrado para os filtros selecionados.")
             else:
                 st.subheader("📋 Amostra dos dados")
                 st.dataframe(df.head(100))
                 st.markdown(f"**Total de linhas retornadas:** {len(df)}")
-        
-                buffer = BytesIO()
-                df.to_excel(buffer, index=False)
-                buffer.seek(0)
-        
-                nome_final = (
-                    nome_arquivo_excel
-                    if nome_arquivo_excel.lower().endswith(".xlsx")
-                    else f"{nome_arquivo_excel}.xlsx"
+
+                # ------------------------------
+                # Geração dos arquivos em memória
+                # ------------------------------
+                # XLSX
+                buffer_xlsx = BytesIO()
+                df.to_excel(buffer_xlsx, index=False)
+                buffer_xlsx.seek(0)
+
+                # CSV
+                csv_bytes = df.to_csv(index=False, sep=";", encoding="utf-8-sig").encode(
+                    "utf-8-sig"
                 )
-        
-                st.download_button(
-                    label="💾 Baixar Excel",
-                    data=buffer,
-                    file_name=nome_final,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-        
+
+                # ZIP (contendo XLSX e CSV)
+                buffer_zip = BytesIO()
+                with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+                    zf.writestr(
+                        f"{nome_arquivo_base}.xlsx",
+                        buffer_xlsx.getvalue(),
+                    )
+                    zf.writestr(
+                        f"{nome_arquivo_base}.csv",
+                        csv_bytes,
+                    )
+                buffer_zip.seek(0)
+
+                # ------------------------------
+                # Botões de download
+                # ------------------------------
+                col_a, col_b, col_c = st.columns(3)
+
+                with col_a:
+                    st.download_button(
+                        label="💾 Baixar XLSX",
+                        data=buffer_xlsx,
+                        file_name=f"{nome_arquivo_base}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+
+                with col_b:
+                    st.download_button(
+                        label="📄 Baixar CSV",
+                        data=csv_bytes,
+                        file_name=f"{nome_arquivo_base}.csv",
+                        mime="text/csv",
+                    )
+
+                with col_c:
+                    st.download_button(
+                        label="📦 Baixar ZIP (XLSX + CSV)",
+                        data=buffer_zip,
+                        file_name=f"{nome_arquivo_base}.zip",
+                        mime="application/zip",
+                    )
+
         except Exception as e:
             st.error("❌ Ocorreu um erro ao executar a consulta.")
             st.exception(e)
