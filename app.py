@@ -132,13 +132,111 @@ def montar_query(
         where_clause = "WHERE " + " AND ".join(filtros)
 
     query = f"""
-      SELECT
+    WITH 
+    dicionario_qualificacao_contribuinte AS (
+        SELECT
+            chave AS chave_qualificacao_contribuinte,
+            valor AS descricao_qualificacao_contribuinte
+        FROM `basedosdados.br_rf_cno.dicionario`
+        WHERE
+            nome_coluna = 'qualificacao_contribuinte'
+            AND id_tabela = 'vinculos'
+    ),
+    dicionario_categoria AS (
+        SELECT
+            chave AS chave_categoria,
+            valor AS descricao_categoria
+        FROM `basedosdados.br_rf_cno.dicionario`
+        WHERE
+            nome_coluna = 'categoria'
+            AND id_tabela = 'areas'
+    ),
+    dicionario_destinacao AS (
+        SELECT
+            chave AS chave_destinacao,
+            valor AS descricao_destinacao
+        FROM `basedosdados.br_rf_cno.dicionario`
+        WHERE
+            nome_coluna = 'destinacao'
+            AND id_tabela = 'areas'
+    ),
+    dicionario_tipo_obra AS (
+        SELECT
+            chave AS chave_tipo_obra,
+            valor AS descricao_tipo_obra
+        FROM `basedosdados.br_rf_cno.dicionario`
+        WHERE
+            nome_coluna = 'tipo_obra'
+            AND id_tabela = 'areas'
+    ),
+    dicionario_tipo_area AS (
+        SELECT
+            chave AS chave_tipo_area,
+            valor AS descricao_tipo_area
+        FROM `basedosdados.br_rf_cno.dicionario`
+        WHERE
+            nome_coluna = 'tipo_area'
+            AND id_tabela = 'areas'
+    ),
+    dicionario_tipo_area_complementar AS (
+        SELECT
+            chave AS chave_tipo_area_complementar,
+            valor AS descricao_tipo_area_complementar
+        FROM `basedosdados.br_rf_cno.dicionario`
+        WHERE
+            nome_coluna = 'tipo_area_complementar'
+            AND id_tabela = 'areas'
+    ),
+
+    -- Enriquecendo vínculos com a descrição da qualificação
+    vinculos_enriquecidos AS (
+        SELECT
+            dados.id_cno,
+            STRING_AGG(
+                DISTINCT descricao_qualificacao_contribuinte,
+                ', '
+            ) AS qualificacao_contribuinte
+        FROM `basedosdados.br_rf_cno.vinculos` AS dados
+        LEFT JOIN dicionario_qualificacao_contribuinte
+            ON dados.qualificacao_contribuinte = chave_qualificacao_contribuinte
+        GROUP BY dados.id_cno
+    ),
+
+    -- Enriquecendo áreas com descrições e agregando por obra
+    areas_enriquecidas AS (
+        SELECT
+            dados.id_cno,
+            STRING_AGG(DISTINCT descricao_categoria, ', ') AS categoria,
+            STRING_AGG(DISTINCT descricao_destinacao, ', ') AS destinacao,
+            STRING_AGG(DISTINCT descricao_tipo_obra, ', ') AS tipo_obra,
+            STRING_AGG(DISTINCT descricao_tipo_area, ', ') AS tipo_area,
+            STRING_AGG(
+                DISTINCT descricao_tipo_area_complementar,
+                ', '
+            ) AS tipo_area_complementar,
+            SUM(dados.metragem) AS metragem_total
+        FROM `basedosdados.br_rf_cno.areas` AS dados
+        LEFT JOIN dicionario_categoria
+            ON dados.categoria = chave_categoria
+        LEFT JOIN dicionario_destinacao
+            ON dados.destinacao = chave_destinacao
+        LEFT JOIN dicionario_tipo_obra
+            ON dados.tipo_obra = chave_tipo_obra
+        LEFT JOIN dicionario_tipo_area
+            ON dados.tipo_area = chave_tipo_area
+        LEFT JOIN dicionario_tipo_area_complementar
+            ON dados.tipo_area_complementar = chave_tipo_area_complementar
+        GROUP BY dados.id_cno
+    )
+
+    SELECT
         dados.data_situacao as data_situacao,
         dados.data_inicio as data_inicio,
         dados.sigla_uf AS sigla_uf,
         diretorio_sigla_uf.nome AS sigla_uf_nome,
         dados.id_municipio AS id_municipio,
         diretorio_id_municipio.nome AS id_municipio_nome,
+        dados.id_cno AS id_cno,
         dados.nome_empresarial as nome_empresarial,
         dados.area as area,
         dados.unidade_medida as unidade_medida,
@@ -148,20 +246,36 @@ def montar_query(
         dados.tipo_logradouro as tipo_logradouro,
         dados.numero_logradouro as numero_logradouro,
         dados.complemento as complemento,
-        dados.caixa_postal as caixa_postal
-      FROM `basedosdados.br_rf_cno.microdados` AS dados
-      LEFT JOIN (
-          SELECT DISTINCT sigla, nome
-          FROM `basedosdados.br_bd_diretorios_brasil.uf`
-      ) AS diretorio_sigla_uf
-          ON dados.sigla_uf = diretorio_sigla_uf.sigla
-      LEFT JOIN (
-          SELECT DISTINCT id_municipio, nome
-          FROM `basedosdados.br_bd_diretorios_brasil.municipio`
-      ) AS diretorio_id_municipio
-          ON dados.id_municipio = diretorio_id_municipio.id_municipio
-      {where_clause}
-      LIMIT {limite_linhas}
+        dados.caixa_postal as caixa_postal,
+
+        -- Novas colunas dos vínculos
+        ve.qualificacao_contribuinte,
+
+        -- Novas colunas das áreas
+        ae.categoria,
+        ae.destinacao,
+        ae.tipo_obra,
+        ae.tipo_area,
+        ae.tipo_area_complementar,
+        ae.metragem_total
+
+    FROM `basedosdados.br_rf_cno.microdados` AS dados
+    LEFT JOIN (
+        SELECT DISTINCT sigla, nome
+        FROM `basedosdados.br_bd_diretorios_brasil.uf`
+    ) AS diretorio_sigla_uf
+        ON dados.sigla_uf = diretorio_sigla_uf.sigla
+    LEFT JOIN (
+        SELECT DISTINCT id_municipio, nome
+        FROM `basedosdados.br_bd_diretorios_brasil.municipio`
+    ) AS diretorio_id_municipio
+        ON dados.id_municipio = diretorio_id_municipio.id_municipio
+    LEFT JOIN vinculos_enriquecidos AS ve
+        ON dados.id_cno = ve.id_cno
+    LEFT JOIN areas_enriquecidas AS ae
+        ON dados.id_cno = ae.id_cno
+    {where_clause}
+    LIMIT {limite_linhas}
     """
     return query
 
