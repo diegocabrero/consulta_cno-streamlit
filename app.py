@@ -15,6 +15,19 @@ st.set_page_config(
     layout="wide",
 )
 
+# CSS para mudar o fundo das caixas de seleção para #f2f2f2
+st.markdown(
+    """
+    <style>
+    /* Aplica o fundo cinza claro nos componentes de select/multiselect */
+    div[data-baseweb="select"] > div {
+        background-color: #f2f2f2 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.title("📊 Consulta CNO (Cadastro Nacional de Obras)")
 st.markdown(
     """
@@ -61,9 +74,8 @@ def get_bigquery_client(billing_project_id: str) -> bigquery.Client:
     )
 
 # -------------------------------------------------------
-# Cache para lista de municípios por UF
+# Lista de municípios por UF (sem cache para garantir atualização)
 # -------------------------------------------------------
-@st.cache_data(show_spinner=False)
 def listar_municipios_por_uf(uf: str, billing_project_id: str):
     """
     Retorna a lista de nomes de municípios para a UF informada.
@@ -412,14 +424,38 @@ if executar:
                 query_job = client.query(sql)
                 df = query_job.to_dataframe()
 
-            st.success(f"Consulta concluída! Linhas retornadas: {len(df)}")
+            # Remove linhas duplicadas
+            df = df.drop_duplicates()
+
+            st.success(f"Consulta concluída! Linhas retornadas (após remover duplicadas): {len(df)}")
 
             if df.empty:
                 st.warning("Nenhum dado encontrado para os filtros selecionados.")
             else:
+                # Gráfico de barras: obras por mês (data_inicio)
+                if "data_inicio" in df.columns:
+                    df_graf = df.copy()
+                    df_graf["data_inicio"] = pd.to_datetime(
+                        df_graf["data_inicio"], errors="coerce"
+                    )
+                    tmp = df_graf[df_graf["data_inicio"].notna()].copy()
+                    tmp["mes"] = tmp["data_inicio"].dt.to_period("M").astype(str)
+                    grp = (
+                        tmp.groupby("mes")
+                        .size()
+                        .reset_index(name="quantidade_obras")
+                        .sort_values("mes")
+                    )
+
+                    if not grp.empty:
+                        st.subheader("📈 Quantidade de obras por mês (data_inicio)")
+                        st.bar_chart(
+                            grp.set_index("mes")["quantidade_obras"]
+                        )
+
                 st.subheader("📋 Amostra dos dados")
                 st.dataframe(df.head(100))
-                st.markdown(f"**Total de linhas retornadas:** {len(df)}")
+                st.markdown(f"**Total de linhas retornadas (sem duplicadas):** {len(df)}")
 
                 # ------------------------------
                 # Geração dos arquivos em memória
@@ -434,12 +470,16 @@ if executar:
                     index=False, sep=";", encoding="utf-8-sig"
                 ).encode("utf-8-sig")
 
-                # ZIP (contendo XLSX)
+                # ZIP (contendo XLSX + CSV)
                 buffer_zip = BytesIO()
                 with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zf:
                     zf.writestr(
                         f"{nome_arquivo_base}.xlsx",
                         buffer_xlsx.getvalue(),
+                    )
+                    zf.writestr(
+                        f"{nome_arquivo_base}.csv",
+                        csv_bytes,
                     )
                 buffer_zip.seek(0)
 
@@ -466,7 +506,7 @@ if executar:
 
                 with col_c:
                     st.download_button(
-                        label="📦 Baixar ZIP (XLSX)",
+                        label="📦 Baixar ZIP (XLSX + CSV)",
                         data=buffer_zip,
                         file_name=f"{nome_arquivo_base}.zip",
                         mime="application/zip",
