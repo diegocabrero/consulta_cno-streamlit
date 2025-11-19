@@ -37,7 +37,7 @@ Você pode:
 - Filtrar por **UF**
 - Filtrar por **cidades (municípios)**, com opção de **Selecionar todas**
 - Definir **data inicial** e **data final** (campo `data_inicio`)
-- Ajustar o **limite de linhas**
+- Ajustar o **limite de linhas** (ou trazer todos os registros)
 - Exportar o resultado para **XLSX, CSV ou ZIP**
 """
 )
@@ -115,7 +115,7 @@ def montar_query(
     cidades_nomes=None,
     data_inicio_min=None,
     data_inicio_max=None,
-    limite_linhas=10_000,
+    limite_linhas=None,
 ):
     filtros = []
 
@@ -142,6 +142,11 @@ def montar_query(
     where_clause = ""
     if filtros:
         where_clause = "WHERE " + " AND ".join(filtros)
+
+    # Cláusula LIMIT opcional
+    limit_clause = ""
+    if limite_linhas is not None and limite_linhas > 0:
+        limit_clause = f"LIMIT {limite_linhas}"
 
     query = f"""
     WITH 
@@ -260,7 +265,18 @@ def montar_query(
         dados.complemento as complemento,
 
         dados.nome_responsavel as nome_responsavel,
-        dados.qualificacao_responsavel as qualificacao_responsavel,
+        dados.qualificacao_responsavel as qualificacao_responsavel_codigo,
+
+        CASE
+            WHEN dados.qualificacao_responsavel = 70  THEN 'Proprietário do imóvel'
+            WHEN dados.qualificacao_responsavel = 53  THEN 'Pessoa jurídica construtora'
+            WHEN dados.qualificacao_responsavel = 64  THEN 'Incorporador de construção civil'
+            WHEN dados.qualificacao_responsavel = 110 THEN 'Construção em nome coletivo'
+            WHEN dados.qualificacao_responsavel = 109 THEN 'Consórcio'
+            WHEN dados.qualificacao_responsavel = 111 THEN 'Sociedade líder de consórcio'
+            WHEN dados.qualificacao_responsavel = 57  THEN 'Dono da obra'
+            ELSE NULL
+        END AS qualificacao_responsavel,
 
         -- Novas colunas dos vínculos
         ve.qualificacao_contribuinte,
@@ -289,7 +305,7 @@ def montar_query(
     LEFT JOIN areas_enriquecidas AS ae
         ON dados.id_cno = ae.id_cno
     {where_clause}
-    LIMIT {limite_linhas}
+    {limit_clause}
     """
     return query
 
@@ -358,14 +374,22 @@ with st.form("filtros_cno"):
             cidades_selecionadas = None
 
     with col5:
-        limite_linhas = st.number_input(
-            "Limite de linhas",
-            min_value=1,
-            max_value=500_000,
-            value=100_000,
-            step=10_000,
-            help="Quanto maior, mais dados e mais custo de processamento no BigQuery.",
+        trazer_todos = st.checkbox(
+            "Trazer todos os registros (sem limite)",
+            value=False,
+            help="Use com cuidado: pode trazer muitos registros e aumentar o custo no BigQuery.",
         )
+        if not trazer_todos:
+            limite_linhas = st.number_input(
+                "Limite de linhas",
+                min_value=1,
+                max_value=500_000,
+                value=100_000,
+                step=10_000,
+                help="Quanto maior, mais dados e mais custo de processamento no BigQuery.",
+            )
+        else:
+            limite_linhas = None
 
     # Checkbox abaixo da linha, não afeta a altura dos campos
     selecionar_todas = st.checkbox(
@@ -405,12 +429,14 @@ if executar:
             data_inicio_max.strftime("%Y-%m-%d") if data_inicio_max else None
         )
 
+        limite_param = int(limite_linhas) if limite_linhas is not None else None
+
         sql = montar_query(
             uf_filtrada=uf_filtrada,
             cidades_nomes=cidades_selecionadas,
             data_inicio_min=data_inicio_min_str,
             data_inicio_max=data_inicio_max_str,
-            limite_linhas=int(limite_linhas),
+            limite_linhas=limite_param,
         )
 
         with st.expander("👀 Ver SQL gerada"):
