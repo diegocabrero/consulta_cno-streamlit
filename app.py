@@ -268,13 +268,13 @@ def montar_query(
         dados.qualificacao_responsavel as qualificacao_responsavel_codigo,
 
         CASE
-            WHEN dados.qualificacao_responsavel = 70  THEN 'Proprietário do imóvel'
-            WHEN dados.qualificacao_responsavel = 53  THEN 'Pessoa jurídica construtora'
-            WHEN dados.qualificacao_responsavel = 64  THEN 'Incorporador de construção civil'
-            WHEN dados.qualificacao_responsavel = 110 THEN 'Construção em nome coletivo'
-            WHEN dados.qualificacao_responsavel = 109 THEN 'Consórcio'
-            WHEN dados.qualificacao_responsavel = 111 THEN 'Sociedade líder de consórcio'
-            WHEN dados.qualificacao_responsavel = 57  THEN 'Dono da obra'
+            WHEN dados.qualificacao_responsavel = '70'  THEN 'Proprietário do imóvel'
+            WHEN dados.qualificacao_responsavel = '53'  THEN 'Pessoa jurídica construtora'
+            WHEN dados.qualificacao_responsavel = '64'  THEN 'Incorporador de construção civil'
+            WHEN dados.qualificacao_responsavel = '110' THEN 'Construção em nome coletivo'
+            WHEN dados.qualificacao_responsavel = '109' THEN 'Consórcio'
+            WHEN dados.qualificacao_responsavel = '111' THEN 'Sociedade líder de consórcio'
+            WHEN dados.qualificacao_responsavel = '57'  THEN 'Dono da obra'
             ELSE NULL
         END AS qualificacao_responsavel,
 
@@ -374,24 +374,16 @@ with st.form("filtros_cno"):
             cidades_selecionadas = None
 
     with col5:
-        trazer_todos = st.checkbox(
-            "Trazer todos os registros (sem limite)",
-            value=False,
-            help="Use com cuidado: pode trazer muitos registros e aumentar o custo no BigQuery.",
+        limite_linhas = st.number_input(
+            "Limite de linhas",
+            min_value=1,
+            max_value=500_000,
+            value=100_000,
+            step=10_000,
+            help="Quanto maior, mais dados e mais custo de processamento no BigQuery.",
         )
-        if not trazer_todos:
-            limite_linhas = st.number_input(
-                "Limite de linhas",
-                min_value=1,
-                max_value=500_000,
-                value=100_000,
-                step=10_000,
-                help="Quanto maior, mais dados e mais custo de processamento no BigQuery.",
-            )
-        else:
-            limite_linhas = None
 
-    # Checkbox abaixo da linha, não afeta a altura dos campos
+    # Checkbox de cidades (abaixo da linha, não afeta altura)
     selecionar_todas = st.checkbox(
         "Selecionar todas as cidades",
         value=True,
@@ -405,6 +397,13 @@ with st.form("filtros_cno"):
         if cidades_selecionadas is not None and len(cidades_selecionadas) == 0:
             # Nenhuma cidade marcada = todas
             cidades_selecionadas = None
+
+    # Checkbox de limite (abaixo, para não desalinha as caixas)
+    trazer_todos = st.checkbox(
+        "Trazer todos os registros (sem limite)",
+        value=False,
+        help="Use com cuidado: pode trazer muitos registros e aumentar o custo no BigQuery.",
+    )
 
     # Nome base do arquivo
     nome_arquivo_base = st.text_input(
@@ -429,7 +428,7 @@ if executar:
             data_inicio_max.strftime("%Y-%m-%d") if data_inicio_max else None
         )
 
-        limite_param = int(limite_linhas) if limite_linhas is not None else None
+        limite_param = None if trazer_todos else int(limite_linhas)
 
         sql = montar_query(
             uf_filtrada=uf_filtrada,
