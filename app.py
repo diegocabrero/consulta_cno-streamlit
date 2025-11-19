@@ -38,6 +38,7 @@ Você pode:
 - Filtrar por **cidades (municípios)**, com opção de **Selecionar todas**
 - Definir **data inicial** e **data final** (campo `data_inicio`)
 - Ajustar o **limite de linhas** (ou trazer todos os registros)
+- Opcionalmente **agrupar por obra (1 linha por id_cno)**
 - Exportar o resultado para **XLSX, CSV ou ZIP**
 """
 )
@@ -74,7 +75,7 @@ def get_bigquery_client(billing_project_id: str) -> bigquery.Client:
     )
 
 # -------------------------------------------------------
-# Lista de municípios por UF (sem cache para garantir atualização)
+# Lista de municípios por UF
 # -------------------------------------------------------
 def listar_municipios_por_uf(uf: str, billing_project_id: str):
     """
@@ -390,12 +391,10 @@ with st.form("filtros_cno"):
         help="Quando marcado, **não** será aplicado filtro de cidade (todas as cidades da UF serão consideradas).",
     )
 
-    # Lógica: se selecionar todas → ignorar filtro de cidade
     if selecionar_todas:
         cidades_selecionadas = None
     else:
         if cidades_selecionadas is not None and len(cidades_selecionadas) == 0:
-            # Nenhuma cidade marcada = todas
             cidades_selecionadas = None
 
     # Checkbox de limite (abaixo, para não desalinha as caixas)
@@ -403,6 +402,13 @@ with st.form("filtros_cno"):
         "Trazer todos os registros (sem limite)",
         value=False,
         help="Use com cuidado: pode trazer muitos registros e aumentar o custo no BigQuery.",
+    )
+
+    # Checkbox para agrupar por obra
+    agrupar_por_obra = st.checkbox(
+        "Agrupar por obra (1 linha por id_cno)",
+        value=False,
+        help="Quando marcado, mantém apenas uma linha por id_cno. Use desmarcado se quiser ver todas as linhas detalhadas.",
     )
 
     # Nome base do arquivo
@@ -449,13 +455,16 @@ if executar:
                 query_job = client.query(sql)
                 df = query_job.to_dataframe()
 
-            # Remove duplicidades – 1 linha por id_cno
-            if "id_cno" in df.columns:
+            # Opcional: 1 linha por obra
+            if agrupar_por_obra and "id_cno" in df.columns:
                 df = df.drop_duplicates(subset=["id_cno"])
-            else:
-                df = df.drop_duplicates()
 
-            st.success(f"Consulta concluída! Obras retornadas (id_cno únicos): {len(df)}")
+            if "id_cno" in df.columns:
+                st.success(
+                    f"Consulta concluída! Obras retornadas (id_cno únicos): {df['id_cno'].nunique()}"
+                )
+            else:
+                st.success(f"Consulta concluída! Linhas retornadas: {len(df)}")
 
             if df.empty:
                 st.warning("Nenhum dado encontrado para os filtros selecionados.")
@@ -477,13 +486,17 @@ if executar:
 
                     if not grp.empty:
                         st.subheader("📈 Quantidade de obras por mês (data_inicio)")
-                        st.bar_chart(
-                            grp.set_index("mes")["quantidade_obras"]
-                        )
+                        st.bar_chart(grp.set_index("mes")["quantidade_obras"])
 
                 st.subheader("📋 Amostra dos dados")
                 st.dataframe(df.head(100))
-                st.markdown(f"**Total de obras (id_cno únicos):** {len(df)}")
+
+                if "id_cno" in df.columns:
+                    st.markdown(
+                        f"**Total de linhas no dataset:** {len(df)}  |  **id_cno únicos:** {df['id_cno'].nunique()}"
+                    )
+                else:
+                    st.markdown(f"**Total de linhas retornadas:** {len(df)}")
 
                 # ------------------------------
                 # Geração dos arquivos em memória
@@ -493,7 +506,7 @@ if executar:
                 df.to_excel(buffer_xlsx, index=False)
                 buffer_xlsx.seek(0)
 
-                # CSV (download separado)
+                # CSV
                 csv_bytes = df.to_csv(
                     index=False, sep=";", encoding="utf-8-sig"
                 ).encode("utf-8-sig")
